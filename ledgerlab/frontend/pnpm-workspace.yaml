@@ -1,0 +1,5 @@
+allowBuilds:
+  core-js: true
+permissions:
+  '@tanstack/react-table':
+    skills: true
