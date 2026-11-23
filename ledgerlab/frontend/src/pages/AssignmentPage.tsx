@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from "react";
+import WorkbookActions from "@/components/WorkbookActions";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import {
   FileSpreadsheet,
@@ -14,6 +15,10 @@ import {
   Pencil,
   Check,
   X,
+  ListTree,
+  BookOpen,
+  Scale,
+  ChevronRight,
 } from "lucide-react";
 import {
   assignmentsApi,
@@ -126,9 +131,9 @@ export default function AssignmentPage() {
         });
         navigate(`/workbook/${wb.id}`);
       } else if (activeTab === "journal-entries") {
-        navigate(`/journal-entries?assignment_id=${id}`);
+        navigate(`/journal-entries?project=${id}`);
       } else if (activeTab === "reports") {
-        navigate(`/reports?assignment_id=${id}`);
+        navigate(`/reports?project=${id}`);
       }
       loadItems();
     } catch (err: any) {
@@ -158,9 +163,9 @@ export default function AssignmentPage() {
     if (activeTab === "workbooks") {
       navigate(`/workbook/${itemId}`);
     } else if (activeTab === "journal-entries") {
-      navigate(`/journal-entries?id=${itemId}`);
+      navigate(`/journal-entries?project=${id}`);
     } else {
-      navigate(`/reports?id=${itemId}`);
+      navigate(`/reports?project=${id}`);
     }
   };
 
@@ -175,7 +180,7 @@ export default function AssignmentPage() {
   if (!assignment) {
     return (
       <div className="p-8 text-center text-gray-500">
-        <p className="text-lg font-medium">Assignment not found</p>
+        <p className="text-lg font-medium">Project not found</p>
         <Link to="/" className="mt-4 inline-block text-blue-600 hover:underline">
           Back to Dashboard
         </Link>
@@ -229,9 +234,69 @@ export default function AssignmentPage() {
 
       {/* Meta */}
       <div className="flex flex-wrap gap-4 text-xs text-gray-500">
-        {assignment.course && <span>Course: {assignment.course}</span>}
+        {assignment.course && <span>Category: {assignment.course}</span>}
         {assignment.created_at && <span>Created: {formatDate(assignment.created_at)}</span>}
         {assignment.due_date && <span>Due: {formatDate(assignment.due_date)}</span>}
+      </div>
+
+      {/* Accounting workflow: everything here uses only this assignment's data */}
+      <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-2xs space-y-3">
+        <div>
+          <h2 className="text-sm font-semibold text-gray-800">Accounting Workflow</h2>
+          <p className="text-xs text-gray-500">
+            This project has its own chart of accounts. Journal entries, the general ledger, trial balance and
+            financial statements here use only this project's data.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          {[
+            {
+              step: 1,
+              label: "Chart of Accounts",
+              icon: ListTree,
+              path: "/accounts",
+              meta: `${assignment.account_count ?? 0} account${assignment.account_count === 1 ? "" : "s"}`,
+              hint: assignment.account_count ? "Edit accounts" : "Start here: add or paste accounts",
+            },
+            {
+              step: 2,
+              label: "Journal Entries",
+              icon: PenLine,
+              path: "/journal-entries",
+              meta: `${assignment.entry_count ?? 0} entr${assignment.entry_count === 1 ? "y" : "ies"}`,
+              hint: assignment.account_count ? "Record transactions" : "Add accounts first",
+            },
+            { step: 3, label: "General Ledger", icon: BookOpen, path: "/ledger", meta: "Auto-generated", hint: "T-accounts & running balances" },
+            { step: 4, label: "Trial Balance", icon: Scale, path: "/trial-balance", meta: "Auto-generated", hint: "Debits = Credits check" },
+            { step: 5, label: "Financial Statements", icon: FileBarChart, path: "/reports", meta: "Auto-generated", hint: "Income statement & balance sheet" },
+          ].map((s) => (
+            <Link
+              key={s.step}
+              to={`${s.path}?project=${id}`}
+              className="group rounded-lg border border-gray-200 p-3 hover:border-blue-300 hover:bg-blue-50/40 transition"
+            >
+              <div className="flex items-center justify-between">
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-100 text-[10px] font-bold text-blue-700">
+                  {s.step}
+                </span>
+                <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-blue-500" />
+              </div>
+              <div className="mt-2 flex items-center gap-1.5">
+                <s.icon className="h-4 w-4 text-blue-600" />
+                <span className="text-xs font-semibold text-gray-800">{s.label}</span>
+              </div>
+              <p className="mt-1 text-[11px] font-medium text-gray-600">{s.meta}</p>
+              <p className="text-[11px] text-gray-400">{s.hint}</p>
+            </Link>
+          ))}
+        </div>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-t border-gray-100 pt-3">
+          <p className="text-xs text-gray-500">
+            Excel workbook: General Journal, General Ledger, Trial Balance, Income Statement and Balance Sheet —
+            formatted, cross-referenced, editable here and downloadable as .xlsx.
+          </p>
+          <WorkbookActions />
+        </div>
       </div>
 
       {/* Tabs */}

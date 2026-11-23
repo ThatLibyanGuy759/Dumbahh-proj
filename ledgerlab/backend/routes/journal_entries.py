@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify
-from models import db, JournalEntry, JournalLine, Account
+from models import db, JournalEntry, JournalLine, Account, scope_query
 from datetime import date, datetime
 import re
 
@@ -7,9 +7,7 @@ bp = Blueprint("journal_entries", __name__, url_prefix="/api/journal-entries")
 
 
 def _next_entry_number(assignment_id=None):
-    query = JournalEntry.query
-    if assignment_id:
-        query = query.filter_by(assignment_id=assignment_id)
+    query = scope_query(JournalEntry.query, JournalEntry, assignment_id)
     last = query.order_by(JournalEntry.id.desc()).first()
     if last:
         try:
@@ -18,6 +16,15 @@ def _next_entry_number(assignment_id=None):
         except ValueError:
             pass
     return "JE-0001"
+
+
+def _invalid_account_ids(account_ids, assignment_id):
+    """Return any account ids that don't belong to this assignment's chart of accounts."""
+    ids = {int(a) for a in account_ids if a}
+    if not ids:
+        return []
+    valid = {a.id for a in scope_query(Account.query, Account, assignment_id).filter(Account.id.in_(ids)).all()}
+    return sorted(ids - valid)
 
 
 MONTH_MAP = {
@@ -247,12 +254,7 @@ def auto_parse_transactions():
     assignment_id = data.get("assignment_id")
     default_year = int(data.get("default_year", 2025))
 
-    query = Account.query
-    if assignment_id:
-        scoped = Account.query.filter_by(assignment_id=assignment_id).order_by(Account.code).all()
-        accounts = scoped if scoped else query.filter_by(assignment_id=None).order_by(Account.code).all()
-    else:
-        accounts = query.order_by(Account.code).all()
+    accounts = scope_query(Account.query, Account, assignment_id).order_by(Account.code).all()
 
     lines = raw_text.splitlines()
     parsed_entries = []
@@ -274,6 +276,13 @@ def bulk_create():
     entries_data = data.get("entries", [])
     assignment_id = data.get("assignment_id")
     auto_post = data.get("post", True)
+
+    bad = _invalid_account_ids(
+        [e.get("debit_account_id") for e in entries_data] + [e.get("credit_account_id") for e in entries_data],
+        assignment_id,
+    )
+    if bad:
+        return jsonify({"error": "Some entries use accounts that are not in this project's chart of accounts."}), 400
 
     created = []
     for idx, e_data in enumerate(entries_data):
@@ -327,9 +336,7 @@ def bulk_create():
 def get_general_journal():
     """Get the complete General Journal listing in textbook accounting order."""
     assignment_id = request.args.get("assignment_id", type=int)
-    query = JournalEntry.query
-    if assignment_id:
-        query = query.filter_by(assignment_id=assignment_id)
+    query = scope_query(JournalEntry.query, JournalEntry, assignment_id)
 
     entries = query.order_by(JournalEntry.date.asc(), JournalEntry.id.asc()).all()
     results = []
@@ -355,11 +362,10 @@ def clear_entries():
     """Clear journal entries for an assignment."""
     data = request.get_json() or {}
     assignment_id = data.get("assignment_id")
-    query = JournalEntry.query
-    if assignment_id:
-        query = query.filter_by(assignment_id=assignment_id)
-    count = query.count()
-    query.delete()
+    entries = scope_query(JournalEntry.query, JournalEntry, assignment_id).all()
+    count = len(entries)
+    for e in entries:
+        db.session.delete(e)  # ORM delete so journal lines cascade too
     db.session.commit()
     return jsonify({"message": f"Cleared {count} journal entries"})
 
@@ -367,9 +373,7 @@ def clear_entries():
 @bp.route("", methods=["GET"])
 def list_entries():
     assignment_id = request.args.get("assignment_id", type=int)
-    query = JournalEntry.query
-    if assignment_id:
-        query = query.filter_by(assignment_id=assignment_id)
+    query = scope_query(JournalEntry.query, JournalEntry, assignment_id)
     entries = query.order_by(JournalEntry.date.desc(), JournalEntry.id.desc()).all()
     return jsonify([e.to_dict() for e in entries])
 
@@ -378,6 +382,8 @@ def list_entries():
 def create_entry():
     data = request.get_json()
     assignment_id = data.get("assignment_id")
+    if _invalid_account_ids([l.get("account_id") for l in data.get("lines", [])], assignment_id):
+        return jsonify({"error": "This entry uses accounts that are not in this project's chart of accounts."}), 400
     entry = JournalEntry(
         entry_number=data.get("entry_number") or _next_entry_number(assignment_id),
         date=date.fromisoformat(data["date"]) if data.get("date") else date.today(),
@@ -425,6 +431,8 @@ def update_entry(id):
         entry.status = data["status"]
 
     if "lines" in data:
+        if _invalid_account_ids([l.get("account_id") for l in data["lines"]], entry.assignment_id):
+            return jsonify({"error": "This entry uses accounts that are not in this project's chart of accounts."}), 400
         JournalLine.query.filter_by(journal_entry_id=entry.id).delete()
         for i, line_data in enumerate(data["lines"]):
             line = JournalLine(

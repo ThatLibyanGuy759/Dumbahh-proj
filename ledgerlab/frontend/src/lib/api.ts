@@ -68,6 +68,25 @@ export const workbooksApi = {
   create: (data: any) => fetchJSON<any>("/workbooks", { method: "POST", body: JSON.stringify(data) }),
   update: (id: string | number, data: any) => fetchJSON<any>(`/workbooks/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id: string | number) => fetchJSON<any>(`/workbooks/${id}`, { method: "DELETE" }),
+  /** Generate the formatted accounting workbook. Throws an error with `.status === 409` and
+   *  `.existing` (the current workbook) when one exists and overwrite is false. */
+  generateAccounting: async (assignmentId?: number | null, overwrite = false) => {
+    const res = await fetch(`${API_BASE}/workbooks/generate-accounting`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assignment_id: assignmentId ?? null, overwrite }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (res.status === 409) {
+      const err: any = new Error("exists");
+      err.status = 409;
+      err.existing = body.workbook;
+      throw err;
+    }
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    return body;
+  },
+  exportUrl: (id: string | number) => `${API_BASE}/workbooks/${id}/export`,
 };
 
 export const sheetsApi = {

@@ -1,5 +1,8 @@
-from flask import Blueprint, request, jsonify
+import re
+from flask import Blueprint, request, jsonify, send_file
 from models import db, Workbook, Sheet
+from accounting_workbook import generate_accounting_workbook, find_generated_workbook
+from xlsx_export import export_workbook
 
 bp = Blueprint("workbooks", __name__, url_prefix="/api/workbooks")
 
@@ -58,3 +61,35 @@ def delete_workbook(id):
     db.session.delete(workbook)
     db.session.commit()
     return jsonify({"message": "Deleted"}), 200
+
+
+@bp.route("/generate-accounting", methods=["POST"])
+def generate_accounting():
+    """Generate (or regenerate) the formatted accounting workbook for an assignment.
+    If one already exists and `overwrite` is not true, returns 409 with the existing workbook."""
+    data = request.get_json() or {}
+    assignment_id = data.get("assignment_id") or None
+    overwrite = bool(data.get("overwrite", False))
+
+    existing = find_generated_workbook(assignment_id)
+    if existing and not overwrite:
+        return jsonify({"error": "exists", "workbook": existing.to_dict(include_sheets=True)}), 409
+
+    wb = generate_accounting_workbook(assignment_id)
+    return jsonify(wb.to_dict(include_sheets=True)), 201
+
+
+@bp.route("/<int:id>/export", methods=["GET"])
+def export_xlsx(id):
+    workbook = Workbook.query.get_or_404(id)
+    buf = export_workbook(workbook)
+    base = workbook.name
+    if workbook.assignment and workbook.description == "generated:accounting":
+        base = f"{workbook.assignment.name} - {workbook.name}"
+    filename = re.sub(r'[\\/:*?"<>|]+', "_", base).strip() or "workbook"
+    return send_file(
+        buf,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=f"{filename}.xlsx",
+    )

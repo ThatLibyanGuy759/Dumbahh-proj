@@ -7,6 +7,15 @@ from flask_cors import CORS
 from config import Config
 from models import db
 
+def _migrate(db):
+    """Add columns introduced after the database was first created (SQLite has no auto-migrate)."""
+    from sqlalchemy import text
+    with db.engine.begin() as conn:
+        cols = {row[1] for row in conn.execute(text("PRAGMA table_info(sheets)"))}
+        if "merges" not in cols:
+            conn.execute(text("ALTER TABLE sheets ADD COLUMN merges TEXT DEFAULT '[]'"))
+
+
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
@@ -33,6 +42,7 @@ def create_app():
 
     with app.app_context():
         db.create_all()
+        _migrate(db)
 
     @app.route("/api/health")
     def health():

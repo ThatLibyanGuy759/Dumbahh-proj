@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify
-from models import db, Report, Account, JournalLine, JournalEntry
+from models import db, Report, Account, JournalLine, JournalEntry, scope_query
 import json
 
 bp = Blueprint("reports", __name__, url_prefix="/api/reports")
@@ -11,15 +11,7 @@ def _get_account_balances(assignment_id=None):
     - account.opening_balance (Beginning Balance)
     - Posted journal entry debits and credits
     """
-    query = Account.query
-    if assignment_id:
-        scoped = Account.query.filter_by(assignment_id=assignment_id).order_by(Account.code).all()
-        if scoped:
-            accounts = scoped
-        else:
-            accounts = query.filter_by(assignment_id=None).order_by(Account.code).all()
-    else:
-        accounts = query.order_by(Account.code).all()
+    accounts = scope_query(Account.query, Account, assignment_id).order_by(Account.code).all()
 
     balances = {}
     for account in accounts:
@@ -28,8 +20,7 @@ def _get_account_balances(assignment_id=None):
             .join(JournalEntry)
             .filter(JournalLine.account_id == account.id, JournalEntry.status == "posted")
         )
-        if assignment_id:
-            line_query = line_query.filter(JournalEntry.assignment_id == assignment_id)
+        line_query = scope_query(line_query, JournalEntry, assignment_id)
 
         lines = line_query.all()
         total_debit = sum(l.debit for l in lines)

@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from "react";
+import WorkbookActions from "@/components/WorkbookActions";
+import { useAssignmentScope, AssignmentScopeBanner } from "@/lib/assignmentScope";
 import { Link } from "react-router-dom";
 import {
   PenLine,
@@ -31,6 +33,7 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import type { Account, JournalEntry } from "@/types";
 
 export default function JournalEntriesPage() {
+  const { assignmentId, assignment, withScope } = useAssignmentScope();
   const [activeTab, setActiveTab] = useState<"feeder" | "journal" | "manual">("feeder");
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [entries, setEntries] = useState<JournalEntry[]>([]);
@@ -60,11 +63,11 @@ export default function JournalEntriesPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const accs = await getAccounts();
+      const accs = await getAccounts(assignmentId);
       setAccounts(accs);
-      const jes = await getJournalEntries();
+      const jes = await getJournalEntries(assignmentId);
       setEntries(jes);
-      const gj = await getGeneralJournal();
+      const gj = await getGeneralJournal(assignmentId);
       setGeneralJournal(gj);
     } catch (err) {
       console.error(err);
@@ -75,7 +78,7 @@ export default function JournalEntriesPage() {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [assignmentId]);
 
   // Preset example from user's homework prompt
   const handleLoadScarpelliPrompt = () => {
@@ -101,7 +104,7 @@ June 27: Paid $220.00 to pay for hydro expense`;
     if (!text.trim()) return;
     setIsParsing(true);
     try {
-      const res = await autoParseTransactions(text, null, defaultYear);
+      const res = await autoParseTransactions(text, assignmentId ?? null, defaultYear);
       setParsedRows(res.entries);
       setPostSuccess(false);
     } catch (err: any) {
@@ -137,7 +140,7 @@ June 27: Paid $220.00 to pay for hydro expense`;
   const handlePostAllParsed = async () => {
     if (parsedRows.length === 0) return;
     try {
-      await bulkCreateJournalEntries(parsedRows, null, true);
+      await bulkCreateJournalEntries(parsedRows, assignmentId ?? null, true);
       setPostSuccess(true);
       setParsedRows([]);
       setRawText("");
@@ -150,7 +153,7 @@ June 27: Paid $220.00 to pay for hydro expense`;
   const handleClearEntries = async () => {
     if (!confirm("Clear all recorded journal entries?")) return;
     try {
-      await journalEntriesApi.clear();
+      await journalEntriesApi.clear(assignmentId);
       setPostSuccess(false);
       loadData();
     } catch (err: any) {
@@ -195,6 +198,7 @@ June 27: Paid $220.00 to pay for hydro expense`;
     }
     try {
       const entry = await createJournalEntry({
+        assignment_id: assignmentId ?? null,
         date,
         description,
         reference,
@@ -220,6 +224,11 @@ June 27: Paid $220.00 to pay for hydro expense`;
 
   return (
     <div className="p-6 lg:p-8 max-w-6xl mx-auto space-y-6">
+      <AssignmentScopeBanner />
+      <div className="flex justify-end">
+        <WorkbookActions sheet={"General Journal"} />
+      </div>
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -296,19 +305,19 @@ June 27: Paid $220.00 to pay for hydro expense`;
               </p>
               <div className="flex flex-wrap items-center gap-3 pt-2">
                 <Link
-                  to="/ledger"
+                  to={withScope("/ledger")}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-emerald-300 text-emerald-800 rounded-md text-xs font-semibold hover:bg-emerald-100 transition"
                 >
                   <BookOpen className="h-3.5 w-3.5" /> View General Ledger
                 </Link>
                 <Link
-                  to="/trial-balance"
+                  to={withScope("/trial-balance")}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-emerald-300 text-emerald-800 rounded-md text-xs font-semibold hover:bg-emerald-100 transition"
                 >
                   <Scale className="h-3.5 w-3.5" /> View Trial Balance
                 </Link>
                 <Link
-                  to="/reports"
+                  to={withScope("/reports")}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-emerald-300 text-emerald-800 rounded-md text-xs font-semibold hover:bg-emerald-100 transition"
                 >
                   <FileBarChart className="h-3.5 w-3.5" /> View Financial Statements
@@ -326,7 +335,7 @@ June 27: Paid $220.00 to pay for hydro expense`;
                   Feed Days of Transactions
                 </h2>
                 <p className="text-xs text-gray-500">
-                  Paste your assignment's transaction log line-by-line. The parser matches dates, amounts, and accounts.
+                  Paste your transaction log line-by-line. The parser matches dates, amounts, and accounts.
                 </p>
               </div>
               <div className="flex items-center gap-3">
@@ -343,7 +352,7 @@ June 27: Paid $220.00 to pay for hydro expense`;
                   onClick={handleLoadScarpelliPrompt}
                   className="px-3 py-1.5 bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 rounded-md text-xs font-medium transition cursor-pointer"
                 >
-                  Load June 2025 Assignment Example
+                  Load June 2025 Example
                 </button>
               </div>
             </div>

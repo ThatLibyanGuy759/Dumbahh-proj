@@ -17,6 +17,8 @@ import {
 } from "lucide-react";
 import { useSpreadsheetStore } from "@/stores/spreadsheetStore";
 import * as XLSX from "xlsx";
+import { saveAs } from "file-saver";
+import { workbooksApi } from "@/lib/api";
 
 export default function Toolbar() {
   const selectedCell = useSpreadsheetStore((s) => s.selectedCell);
@@ -91,20 +93,21 @@ export default function Toolbar() {
     setCellFormat(targets, { font_color: e.target.value });
   };
 
-  const handleExportXLSX = () => {
-    const data: (string | number)[][] = [];
-    for (let r = 0; r < 50; r++) {
-      const row: (string | number)[] = [];
-      for (let c = 0; c < 26; c++) {
-        const cell = cells.get(`${r},${c}`);
-        row.push(cell ? (cell.computed_value || cell.raw_value) : "");
-      }
-      data.push(row);
+  const handleExportXLSX = async () => {
+    if (!workbook) return;
+    // Save pending edits first so the download matches what's on screen
+    if (isDirty) await saveCells();
+    try {
+      const res = await fetch(workbooksApi.exportUrl(workbook.id));
+      if (!res.ok) throw new Error(res.statusText);
+      const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const match = disposition.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
+      const filename = match ? decodeURIComponent(match[1]) : `${workbook.name || "LedgerLab"}.xlsx`;
+      saveAs(blob, filename);
+    } catch (err: any) {
+      alert(err.message || "Failed to export workbook");
     }
-    const ws = XLSX.utils.aoa_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
-    XLSX.writeFile(wb, `${workbook?.name || "LedgerLab_Spreadsheet"}.xlsx`);
   };
 
   const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -261,10 +264,10 @@ export default function Toolbar() {
       <button
         onClick={handleExportXLSX}
         className="flex items-center gap-1 px-2 py-1 rounded hover:bg-gray-100 text-gray-600"
-        title="Export to Excel (.xlsx)"
+        title="Download all sheets as a formatted Excel file (.xlsx)"
       >
         <Download className="h-3.5 w-3.5" />
-        <span>Export</span>
+        <span>Download Excel</span>
       </button>
 
       <div className="ml-auto flex items-center gap-2">

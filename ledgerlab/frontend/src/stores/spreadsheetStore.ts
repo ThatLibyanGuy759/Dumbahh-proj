@@ -27,13 +27,16 @@ interface SpreadsheetState {
   undoStack: Map<string, CellData>[];
   redoStack: Map<string, CellData>[];
 
+  // Cells deleted since last save (must be removed on the server too)
+  deletedKeys: Set<string>;
+
   // Auto-save
   isDirty: boolean;
   isSaving: boolean;
   lastSaved: Date | null;
 
   // Actions
-  loadWorkbook: (id: number) => Promise<void>;
+  loadWorkbook: (id: number, initialSheetName?: string) => Promise<void>;
   loadSheet: (sheetId: number) => Promise<void>;
   setActiveSheet: (sheetId: number) => void;
   addSheet: () => Promise<void>;
@@ -88,69 +91,64 @@ function initHyperFormula(): HyperFormula {
   });
 }
 
+function toHfValue(cell: CellData | undefined): string | number | null {
+  if (!cell || !cell.raw_value) return null;
+  if (cell.raw_value.startsWith("=")) return cell.raw_value;
+  const num = Number(cell.raw_value);
+  return cell.raw_value.trim() !== "" && !isNaN(num) ? num : cell.raw_value;
+}
+
+function toHfData(cells: Map<string, CellData> | CellData[]): (string | number | null)[][] {
+  const data: (string | number | null)[][] = [];
+  const list = Array.isArray(cells) ? cells : Array.from(cells.values());
+  for (const cell of list) {
+    const v = toHfValue(cell);
+    if (v === null) continue;
+    while (data.length <= cell.row) data.push([]);
+    const row = data[cell.row];
+    while (row.length <= cell.col) row.push(null);
+    row[cell.col] = v;
+  }
+  return data;
+}
+
+/** Make sure the formula engine holds this sheet (by name) so cross-sheet
+ *  references such as ='Trial Balance'!B5 resolve. */
+function ensureHfSheet(hf: HyperFormula, name: string): number {
+  let id = hf.getSheetId(name);
+  if (id === undefined) {
+    hf.addSheet(name);
+    id = hf.getSheetId(name)!;
+  }
+  return id;
+}
+
 function computeFormulas(
   hf: HyperFormula,
-  cells: Map<string, CellData>,
-  rowCount: number,
-  colCount: number
+  sheetName: string,
+  cells: Map<string, CellData>
 ): Map<string, CellData> {
-  // Build data array for HyperFormula
-  const data: (string | number | null)[][] = [];
-  for (let r = 0; r < rowCount; r++) {
-    const row: (string | number | null)[] = [];
-    for (let c = 0; c < colCount; c++) {
-      const cell = cells.get(cellKey(r, c));
-      if (cell && cell.raw_value) {
-        if (cell.raw_value.startsWith("=")) {
-          row.push(cell.raw_value);
-        } else {
-          const num = Number(cell.raw_value);
-          row.push(isNaN(num) ? cell.raw_value : num);
-        }
-      } else {
-        row.push(null);
-      }
-    }
-    data.push(row);
-  }
+  const sheetId = ensureHfSheet(hf, sheetName);
+  hf.setSheetContent(sheetId, toHfData(cells));
 
-  // Replace sheet in HyperFormula
-  const sheetNames = hf.getSheetNames();
-  if (sheetNames.length > 0) {
-    hf.removeSheet(hf.getSheetId(sheetNames[0])!);
-  }
-  hf.addSheet("Sheet");
-  const sheetId = hf.getSheetId("Sheet")!;
-  if (data.length > 0) {
-    hf.setSheetContent(sheetId, data);
-  }
-
-  // Update computed values
   const updated = new Map(cells);
   for (const [key, cell] of updated) {
-    if (cell.raw_value.startsWith("=")) {
-      try {
-        const val = hf.getCellValue({ sheet: sheetId, row: cell.row, col: cell.col });
-        const computedCell = { ...cell };
-        if (typeof val === "number") {
-          computedCell.computed_value = String(val);
-          computedCell.data_type = "formula";
-        } else if (val instanceof Object && "type" in val) {
-          computedCell.computed_value = "#ERROR!";
-          computedCell.data_type = "formula";
-        } else {
-          computedCell.computed_value = String(val ?? "");
-          computedCell.data_type = "formula";
-        }
-        updated.set(key, computedCell);
-      } catch {
-        const computedCell = { ...cell, computed_value: "#ERROR!", data_type: "formula" as const };
-        updated.set(key, computedCell);
-      }
+    if (!cell.raw_value.startsWith("=")) continue;
+    let computed = "";
+    try {
+      const val = hf.getCellValue({ sheet: sheetId, row: cell.row, col: cell.col });
+      if (val !== null && typeof val === "object") computed = (val as any).value || "#ERROR!";
+      else computed = String(val ?? "");
+    } catch {
+      computed = "#ERROR!";
     }
+    updated.set(key, { ...cell, computed_value: computed, data_type: "formula" });
   }
-
   return updated;
+}
+
+function activeSheetName(state: { sheets: SheetData[]; activeSheetId: number | null }) {
+  return state.sheets.find((s) => s.id === state.activeSheetId)?.name || "Sheet";
 }
 
 export const useSpreadsheetStore = create<SpreadsheetState>((set, get) => ({
@@ -167,6 +165,7 @@ export const useSpreadsheetStore = create<SpreadsheetState>((set, get) => ({
   clipboardRange: null,
   undoStack: [],
   redoStack: [],
+  deletedKeys: new Set(),
   isDirty: false,
   isSaving: false,
   lastSaved: null,
@@ -185,11 +184,18 @@ export const useSpreadsheetStore = create<SpreadsheetState>((set, get) => ({
     if (isNaN(num)) return val;
 
     switch (cell.format_type) {
+      case "accounting":
+        if (Math.abs(num) < 0.005) return "";
+        return new Intl.NumberFormat("en-US", {
+          style: "currency", currency: "USD",
+          minimumFractionDigits: cell.decimal_places ?? 2,
+          maximumFractionDigits: cell.decimal_places ?? 2,
+        }).format(num);
       case "currency":
         return new Intl.NumberFormat("en-US", {
           style: "currency", currency: "USD",
-          minimumFractionDigits: cell.decimal_places,
-          maximumFractionDigits: cell.decimal_places,
+          minimumFractionDigits: cell.decimal_places ?? 2,
+          maximumFractionDigits: cell.decimal_places ?? 2,
         }).format(num);
       case "percentage":
         return `${(num * 100).toFixed(cell.decimal_places)}%`;
@@ -200,12 +206,21 @@ export const useSpreadsheetStore = create<SpreadsheetState>((set, get) => ({
     }
   },
 
-  loadWorkbook: async (id: number) => {
+  loadWorkbook: async (id: number, initialSheetName?: string) => {
     const workbook = await workbooksApi.get(id);
-    const hf = get().hf || initHyperFormula();
-    set({ workbook, sheets: workbook.sheets || [], hf });
-    if (workbook.sheets && workbook.sheets.length > 0) {
-      await get().loadSheet(workbook.sheets[0].id);
+    const sheets: SheetData[] = workbook.sheets || [];
+
+    // Load every sheet into one formula engine so cross-sheet references work
+    const fullSheets = await Promise.all(sheets.map((s) => sheetsApi.get(s.id)));
+    const hfSheets: Record<string, (string | number | null)[][]> = {};
+    for (const fs of fullSheets) hfSheets[fs.name] = toHfData(fs.cells || []);
+    get().hf?.destroy();
+    const hf = HyperFormula.buildFromSheets(hfSheets, { licenseKey: "gpl-v3", precisionRounding: 10 });
+
+    set({ workbook, sheets, hf });
+    if (sheets.length > 0) {
+      const initial = (initialSheetName && sheets.find((s) => s.name === initialSheetName)) || sheets[0];
+      await get().loadSheet(initial.id);
     }
   },
 
@@ -217,10 +232,11 @@ export const useSpreadsheetStore = create<SpreadsheetState>((set, get) => ({
     }
 
     const sheet = get().sheets.find((s) => s.id === sheetId);
-    const hf = get().hf || initHyperFormula();
-    const computed = computeFormulas(hf, cellsMap, sheet?.row_count || 100, sheet?.col_count || 26);
+    if (!get().hf) set({ hf: initHyperFormula() });
+    const computed = computeFormulas(get().hf!, sheet?.name || "Sheet", cellsMap);
 
     set({
+      deletedKeys: new Set(),
       activeSheetId: sheetId,
       cells: computed,
       selectedCell: { row: 0, col: 0 },
@@ -232,12 +248,12 @@ export const useSpreadsheetStore = create<SpreadsheetState>((set, get) => ({
     });
   },
 
-  setActiveSheet: (sheetId: number) => {
+  setActiveSheet: async (sheetId: number) => {
     const state = get();
     if (state.isDirty) {
-      state.saveCells();
+      await state.saveCells();
     }
-    state.loadSheet(sheetId);
+    await get().loadSheet(sheetId);
   },
 
   addSheet: async () => {
@@ -248,11 +264,19 @@ export const useSpreadsheetStore = create<SpreadsheetState>((set, get) => ({
       name: `Sheet ${sheets.length + 1}`,
     });
     set({ sheets: [...sheets, newSheet] });
+    const hf = get().hf;
+    if (hf) ensureHfSheet(hf, newSheet.name);
     await get().loadSheet(newSheet.id);
   },
 
   renameSheet: async (sheetId: number, name: string) => {
+    const oldName = get().sheets.find((s) => s.id === sheetId)?.name;
     await sheetsApi.update(sheetId, { name });
+    const hf = get().hf;
+    if (hf && oldName) {
+      const hid = hf.getSheetId(oldName);
+      if (hid !== undefined) hf.renameSheet(hid, name);
+    }
     set({
       sheets: get().sheets.map((s) => (s.id === sheetId ? { ...s, name } : s)),
     });
@@ -261,7 +285,13 @@ export const useSpreadsheetStore = create<SpreadsheetState>((set, get) => ({
   deleteSheet: async (sheetId: number) => {
     const { sheets, activeSheetId } = get();
     if (sheets.length <= 1) return;
+    const name = sheets.find((s) => s.id === sheetId)?.name;
     await sheetsApi.delete(sheetId);
+    const hf = get().hf;
+    if (hf && name) {
+      const hid = hf.getSheetId(name);
+      if (hid !== undefined) hf.removeSheet(hid);
+    }
     const remaining = sheets.filter((s) => s.id !== sheetId);
     set({ sheets: remaining });
     if (activeSheetId === sheetId) {
@@ -307,7 +337,7 @@ export const useSpreadsheetStore = create<SpreadsheetState>((set, get) => ({
   },
 
   setCellValue: (row: number, col: number, value: string) => {
-    const { cells, hf, sheets, activeSheetId } = get();
+    const { cells, hf } = get();
 
     // Save for undo
     const undoSnapshot = new Map(cells);
@@ -341,19 +371,19 @@ export const useSpreadsheetStore = create<SpreadsheetState>((set, get) => ({
     }
 
     const newCells = new Map(cells);
-    if (value === "" && !existing?.font_bold && !existing?.bg_color) {
+    const deletedKeys = new Set(get().deletedKeys);
+    if (value === "" && !existing?.font_bold && !existing?.bg_color && !existing?.border) {
       newCells.delete(key);
+      deletedKeys.add(key);
     } else {
       newCells.set(key, newCell);
+      deletedKeys.delete(key);
     }
 
     // Recompute formulas
-    const sheet = sheets.find((s) => s.id === activeSheetId);
-    const computed = hf
-      ? computeFormulas(hf, newCells, sheet?.row_count || 100, sheet?.col_count || 26)
-      : newCells;
+    const computed = hf ? computeFormulas(hf, activeSheetName(get()), newCells) : newCells;
 
-    set({ cells: computed, undoStack, redoStack: [], isDirty: true });
+    set({ cells: computed, deletedKeys, undoStack, redoStack: [], isDirty: true });
   },
 
   setCellFormat: (positions: CellPosition[], format: Partial<CellData>) => {
@@ -380,12 +410,24 @@ export const useSpreadsheetStore = create<SpreadsheetState>((set, get) => ({
     const undoSnapshot = new Map(cells);
     const undoStack = [...get().undoStack, undoSnapshot].slice(-50);
     const newCells = new Map(cells);
+    const deletedKeys = new Set(get().deletedKeys);
 
     for (const pos of positions) {
-      newCells.delete(cellKey(pos.row, pos.col));
+      const key = cellKey(pos.row, pos.col);
+      const existing = newCells.get(key);
+      if (!existing) continue;
+      // Clear the content but keep the cell's formatting (fill, borders, fonts)
+      if (existing.bg_color || existing.border || existing.font_bold) {
+        newCells.set(key, { ...existing, raw_value: "", computed_value: "", data_type: "string" });
+      } else {
+        newCells.delete(key);
+        deletedKeys.add(key);
+      }
     }
 
-    set({ cells: newCells, undoStack, redoStack: [], isDirty: true });
+    const hf = get().hf;
+    const computed = hf ? computeFormulas(hf, activeSheetName(get()), newCells) : newCells;
+    set({ cells: computed, deletedKeys, undoStack, redoStack: [], isDirty: true });
   },
 
   copyCells: () => {
@@ -423,9 +465,12 @@ export const useSpreadsheetStore = create<SpreadsheetState>((set, get) => ({
   undo: () => {
     const { undoStack, cells } = get();
     if (undoStack.length === 0) return;
-    const prev = undoStack[undoStack.length - 1];
+    const snapshot = undoStack[undoStack.length - 1];
     const redoStack = [...get().redoStack, new Map(cells)].slice(-50);
+    const hf = get().hf;
+    const prev = hf ? computeFormulas(hf, activeSheetName(get()), snapshot) : snapshot;
     set({
+      deletedKeys: new Set([...get().deletedKeys, ...[...cells.keys()].filter((k) => !prev.has(k))]),
       cells: prev,
       undoStack: undoStack.slice(0, -1),
       redoStack,
@@ -436,9 +481,12 @@ export const useSpreadsheetStore = create<SpreadsheetState>((set, get) => ({
   redo: () => {
     const { redoStack, cells } = get();
     if (redoStack.length === 0) return;
-    const next = redoStack[redoStack.length - 1];
+    const snapshot = redoStack[redoStack.length - 1];
     const undoStack = [...get().undoStack, new Map(cells)].slice(-50);
+    const hf = get().hf;
+    const next = hf ? computeFormulas(hf, activeSheetName(get()), snapshot) : snapshot;
     set({
+      deletedKeys: new Set([...get().deletedKeys, ...[...cells.keys()].filter((k) => !next.has(k))]),
       cells: next,
       redoStack: redoStack.slice(0, -1),
       undoStack,
@@ -447,11 +495,18 @@ export const useSpreadsheetStore = create<SpreadsheetState>((set, get) => ({
   },
 
   saveCells: async () => {
-    const { activeSheetId, cells, isSaving } = get();
+    const { activeSheetId, cells, isSaving, deletedKeys } = get();
     if (!activeSheetId || isSaving) return;
 
     set({ isSaving: true });
     try {
+      const toClear = [...deletedKeys]
+        .filter((k) => !cells.has(k))
+        .map((k) => {
+          const [row, col] = k.split(",").map(Number);
+          return { row, col };
+        });
+      if (toClear.length > 0) await sheetsApi.clearCells(activeSheetId, toClear);
       const cellsArr = Array.from(cells.values()).map((c) => ({
         row: c.row,
         col: c.col,
@@ -469,7 +524,7 @@ export const useSpreadsheetStore = create<SpreadsheetState>((set, get) => ({
         border: c.border,
       }));
       await sheetsApi.updateCells(activeSheetId, cellsArr);
-      set({ isDirty: false, lastSaved: new Date() });
+      set({ isDirty: false, deletedKeys: new Set(), lastSaved: new Date() });
     } catch (err) {
       console.error("Failed to save:", err);
     } finally {

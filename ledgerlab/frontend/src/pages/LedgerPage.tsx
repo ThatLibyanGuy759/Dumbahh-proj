@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from "react";
+import WorkbookActions from "@/components/WorkbookActions";
+import { useAssignmentScope, AssignmentScopeBanner } from "@/lib/assignmentScope";
 import { BookOpen, Search, Download, Printer, Layers, Eye } from "lucide-react";
 import { getAccounts, getAccountLedger, getAllLedgers } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import type { Account, LedgerData } from "@/types";
 
 export default function LedgerPage() {
+  const { assignmentId, assignment, withScope } = useAssignmentScope();
   const [viewMode, setViewMode] = useState<"all" | "single">("all");
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
@@ -15,20 +18,18 @@ export default function LedgerPage() {
 
   useEffect(() => {
     async function init() {
-      const accs = await getAccounts();
+      const accs = await getAccounts(assignmentId);
       setAccounts(accs);
-      if (accs.length > 0) {
-        setSelectedAccountId(accs[0].id);
-      }
+      setSelectedAccountId(accs.length > 0 ? accs[0].id : null);
     }
     init();
-  }, []);
+  }, [assignmentId]);
 
   const loadData = async () => {
     setLoading(true);
     try {
       if (viewMode === "all") {
-        const data = await getAllLedgers(undefined, hideUnused);
+        const data = await getAllLedgers(assignmentId, hideUnused);
         setAllLedgers(data);
       } else if (selectedAccountId) {
         const data = await getAccountLedger(selectedAccountId);
@@ -43,7 +44,7 @@ export default function LedgerPage() {
 
   useEffect(() => {
     loadData();
-  }, [viewMode, selectedAccountId, hideUnused]);
+  }, [viewMode, selectedAccountId, hideUnused, assignmentId]);
 
   const handlePrint = () => {
     window.print();
@@ -51,6 +52,11 @@ export default function LedgerPage() {
 
   return (
     <div className="p-6 lg:p-8 max-w-6xl mx-auto space-y-6">
+      <AssignmentScopeBanner />
+      <div className="flex justify-end">
+        <WorkbookActions sheet={"General Ledger"} />
+      </div>
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>

@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from "react";
+import WorkbookActions from "@/components/WorkbookActions";
+import { useAssignmentScope, AssignmentScopeBanner } from "@/lib/assignmentScope";
 import {
   FileBarChart,
   Printer,
@@ -16,6 +18,7 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 
 export default function ReportsPage() {
+  const { assignmentId, assignment, withScope } = useAssignmentScope();
   const [activeTab, setActiveTab] = useState<"income_statement" | "balance_sheet">("income_statement");
   const [companyName, setCompanyName] = useState("Mr. Scarpelli's Electronic Repair Services");
   const [reportingPeriod, setReportingPeriod] = useState("For the Month Ended June 30, 2025");
@@ -28,9 +31,9 @@ export default function ReportsPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const is = await reportsApi.generateIncomeStatement(undefined, hideUnused);
+      const is = await reportsApi.generateIncomeStatement(assignmentId, hideUnused);
       setIncomeData(is);
-      const bs = await reportsApi.generateBalanceSheet(undefined, hideUnused);
+      const bs = await reportsApi.generateBalanceSheet(assignmentId, hideUnused);
       setBalanceData(bs);
     } catch (err) {
       console.error(err);
@@ -41,7 +44,12 @@ export default function ReportsPage() {
 
   useEffect(() => {
     loadData();
-  }, [hideUnused]);
+  }, [hideUnused, assignmentId]);
+
+  // Default the company name to the assignment's name when scoped
+  useEffect(() => {
+    if (assignment?.name) setCompanyName(assignment.name);
+  }, [assignment?.name]);
 
   const handleExportPDF = () => {
     const doc = new jsPDF();
@@ -102,6 +110,11 @@ export default function ReportsPage() {
 
   return (
     <div className="p-6 lg:p-8 max-w-5xl mx-auto space-y-6">
+      <AssignmentScopeBanner />
+      <div className="flex justify-end">
+        <WorkbookActions sheet={activeTab === "income_statement" ? "Income Statement" : "Balance Sheet"} />
+      </div>
+
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>

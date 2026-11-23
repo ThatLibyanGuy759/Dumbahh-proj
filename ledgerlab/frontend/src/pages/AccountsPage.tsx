@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useAssignmentScope, AssignmentScopeBanner } from "@/lib/assignmentScope";
 import {
   ListTree,
   Plus,
@@ -56,7 +57,62 @@ const parseOpeningBalance = (value: string | undefined): number => {
   return isNegative ? -Math.abs(amount) : amount;
 };
 
+const CODE_ONLY = /^#?\d{1,5}$/;
+const AMOUNT_ONLY = /^\(?-?\$?\s*-?\d[\d,]*(?:\.\d+)?\)?(?:\s*(?:CR|DR))?$/i;
+
+// Converts "one field per line" pastes (e.g. copied from a web/Word table):
+//   100
+//   Cash
+//   $1,300.00
+//   301
+//   Mr. Scarpelli, Drawings
+// into tab-separated rows: "100\tCash\t$1,300.00". Other lines pass through unchanged.
+const normalizeVerticalRows = (rawLines: string[]): string[] => {
+  const lines = rawLines.map((l) => l.trim()).filter((l) => l.length > 0);
+  const out: string[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    const next = lines[i + 1];
+
+    // A code on its own line followed by a title line (not a code/amount) starts a vertical record
+    if (CODE_ONLY.test(line) && next !== undefined && !AMOUNT_ONLY.test(next)) {
+      const code = line;
+      const name = next;
+      i += 2;
+
+      let balance = "";
+      const candidate = lines[i];
+      if (candidate !== undefined && AMOUNT_ONLY.test(candidate)) {
+        if (!CODE_ONLY.test(candidate)) {
+          // Clearly an amount ($, decimals, commas, parentheses)
+          balance = candidate;
+          i += 1;
+        } else {
+          // Bare number like "1300": treat as a balance only if it isn't the start of the next record
+          const after = lines[i + 1];
+          const startsNextRecord = after !== undefined && !AMOUNT_ONLY.test(after);
+          if (!startsNextRecord) {
+            balance = candidate;
+            i += 1;
+          }
+        }
+      }
+
+      out.push(`${code}\t${name}\t${balance}`);
+      continue;
+    }
+
+    out.push(line);
+    i += 1;
+  }
+
+  return out;
+};
+
 export default function AccountsPage() {
+  const { assignmentId, assignment, withScope } = useAssignmentScope();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -77,7 +133,7 @@ export default function AccountsPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const data = await accountsApi.list();
+      const data = await accountsApi.list(assignmentId);
       setAccounts(data);
       setSelectedIds([]);
     } catch (err) {
@@ -89,7 +145,7 @@ export default function AccountsPage() {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [assignmentId]);
 
   const toggleSelect = (id: number) => {
     setSelectedIds((prev) =>
@@ -121,6 +177,7 @@ export default function AccountsPage() {
       await bulkDeleteAccounts({
         account_ids: idsToDelete,
         all: isAll,
+        assignment_id: assignmentId ?? null,
       });
       setSelectedIds([]);
       loadData();
@@ -131,6 +188,7 @@ export default function AccountsPage() {
             await bulkDeleteAccounts({
               account_ids: idsToDelete,
               all: isAll,
+        assignment_id: assignmentId ?? null,
               force: true,
             });
             setSelectedIds([]);
@@ -160,6 +218,7 @@ export default function AccountsPage() {
     if (!newCode.trim() || !newName.trim()) return;
     try {
       await createAccount({
+        assignment_id: assignmentId ?? null,
         code: newCode.trim(),
         name: newName.trim(),
         account_type: newType,
@@ -179,7 +238,7 @@ export default function AccountsPage() {
   // Helper to parse pasted raw lines of accounts
   const handleParsePastedText = (text: string) => {
     setPasteText(text);
-    const lines = text.split(/\r?\n/);
+    const lines = normalizeVerticalRows(text.split(/\r?\n/));
     const preview: PastedAccount[] = [];
 
     for (const rawLine of lines) {
@@ -238,6 +297,7 @@ export default function AccountsPage() {
     try {
       await bulkAccounts({
         replace: true,
+        assignment_id: assignmentId ?? null,
         accounts: parsedPreview,
       });
       setShowPasteModal(false);
@@ -297,6 +357,8 @@ export default function AccountsPage() {
 
   return (
     <div className="p-6 lg:p-8 max-w-6xl mx-auto space-y-6">
+      <AssignmentScopeBanner />
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -565,7 +627,7 @@ export default function AccountsPage() {
               <div>
                 <h3 className="text-base font-bold text-gray-900">Quick Paste Chart of Accounts</h3>
                 <p className="text-xs text-gray-500">
-                  Paste rows directly from your assignment (pipe, tab, or space separated).
+                  Paste rows directly (pipe, tab, or space separated), or a copied table with one field per line.
                 </p>
               </div>
               <button onClick={() => setShowPasteModal(false)} className="text-gray-400 hover:text-gray-600">

@@ -39,6 +39,8 @@ def update_sheet(id):
         sheet.col_widths = json.dumps(data["col_widths"])
     if "row_heights" in data:
         sheet.row_heights = json.dumps(data["row_heights"])
+    if "merges" in data:
+        sheet.merges = json.dumps(data["merges"])
     db.session.commit()
     return jsonify(sheet.to_dict())
 

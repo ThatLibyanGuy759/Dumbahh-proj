@@ -84,6 +84,7 @@ class Sheet(db.Model):
     frozen_cols = db.Column(db.Integer, default=0)
     col_widths = db.Column(db.Text, default="{}")
     row_heights = db.Column(db.Text, default="{}")
+    merges = db.Column(db.Text, default="[]")  # [{"r":0,"c":0,"rs":1,"cs":3}, ...]
     created_at = db.Column(db.DateTime, default=utcnow)
     updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
@@ -101,6 +102,7 @@ class Sheet(db.Model):
             "frozen_cols": self.frozen_cols,
             "col_widths": json.loads(self.col_widths) if self.col_widths else {},
             "row_heights": json.loads(self.row_heights) if self.row_heights else {},
+            "merges": json.loads(self.merges) if self.merges else [],
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -339,3 +341,11 @@ class VersionHistory(db.Model):
             "description": self.description,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
+
+
+def scope_query(query, model, assignment_id):
+    """Restrict a query to one workspace: a specific assignment, or the global
+    workspace (assignment_id IS NULL) when no assignment is given."""
+    if assignment_id:
+        return query.filter(model.assignment_id == int(assignment_id))
+    return query.filter(model.assignment_id.is_(None))

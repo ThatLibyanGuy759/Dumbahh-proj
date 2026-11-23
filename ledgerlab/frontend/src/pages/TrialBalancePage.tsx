@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from "react";
+import WorkbookActions from "@/components/WorkbookActions";
+import { useAssignmentScope, AssignmentScopeBanner } from "@/lib/assignmentScope";
 import { Scale, CheckCircle2, AlertTriangle, Printer, Download, RefreshCw, Filter } from "lucide-react";
 import { reportsApi } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
@@ -7,6 +9,7 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 
 export default function TrialBalancePage() {
+  const { assignmentId, assignment, withScope } = useAssignmentScope();
   const [data, setData] = useState<TrialBalanceData | null>(null);
   const [loading, setLoading] = useState(false);
   const [companyName, setCompanyName] = useState("Mr. Scarpelli's Electronic Repair Services");
@@ -16,7 +19,7 @@ export default function TrialBalancePage() {
   const loadTrialBalance = async () => {
     setLoading(true);
     try {
-      const res = await reportsApi.generateTrialBalance(undefined, hideUnused);
+      const res = await reportsApi.generateTrialBalance(assignmentId, hideUnused);
       setData(res);
     } catch (err) {
       console.error(err);
@@ -27,7 +30,12 @@ export default function TrialBalancePage() {
 
   useEffect(() => {
     loadTrialBalance();
-  }, [hideUnused]);
+  }, [hideUnused, assignmentId]);
+
+  // Default the company name to the assignment's name when scoped
+  useEffect(() => {
+    if (assignment?.name) setCompanyName(assignment.name);
+  }, [assignment?.name]);
 
   const handleExportPDF = () => {
     if (!data) return;
@@ -67,6 +75,11 @@ export default function TrialBalancePage() {
 
   return (
     <div className="p-6 lg:p-8 max-w-5xl mx-auto space-y-6">
+      <AssignmentScopeBanner />
+      <div className="flex justify-end">
+        <WorkbookActions sheet={"Trial Balance"} />
+      </div>
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>

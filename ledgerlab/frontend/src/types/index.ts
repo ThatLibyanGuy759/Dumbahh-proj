@@ -8,7 +8,7 @@ export interface CellData {
   raw_value: string;
   computed_value: string;
   data_type: "string" | "number" | "formula" | "boolean" | "date";
-  format_type: "general" | "currency" | "percentage" | "number" | "date" | "text";
+  format_type: "general" | "currency" | "accounting" | "percentage" | "number" | "date" | "text";
   decimal_places: number;
   font_bold: boolean;
   font_italic: boolean;
@@ -30,6 +30,7 @@ export interface SheetData {
   frozen_cols: number;
   col_widths: Record<string, number>;
   row_heights: Record<string, number>;
+  merges?: { r: number; c: number; rs: number; cs: number }[];
   cells?: CellData[];
 }
 

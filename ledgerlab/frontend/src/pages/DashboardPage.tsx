@@ -79,9 +79,9 @@ export default function DashboardPage() {
       setAssignName("");
       setAssignCourse("");
       setAssignDesc("");
-      navigate(`/assignments/${created.id}`);
+      navigate(`/projects/${created.id}`);
     } catch (err: any) {
-      alert(err.message || "Failed to create assignment");
+      alert(err.message || "Failed to create project");
     }
   };
 
@@ -104,7 +104,7 @@ export default function DashboardPage() {
 
   const quickActions = [
     {
-      label: "New Assignment",
+      label: "New Project",
       icon: Plus,
       color: "bg-blue-600 hover:bg-blue-700",
       onClick: () => setShowAssignmentModal(true),
@@ -187,13 +187,13 @@ export default function DashboardPage() {
       {/* ---- Recent assignments ---- */}
       <section>
         <h2 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">
-          Assignments ({assignments.length})
+          Projects ({assignments.length})
         </h2>
 
         {assignments.length === 0 ? (
           <div className="rounded-xl border border-gray-200 bg-white p-10 text-center text-gray-400">
             <BookOpen className="mx-auto h-10 w-10 mb-3 text-gray-300" />
-            <p className="font-medium text-gray-600 text-sm">No assignments yet</p>
+            <p className="font-medium text-gray-600 text-sm">No projects yet</p>
             <p className="text-xs text-gray-400 mt-1">Create one with the button above.</p>
           </div>
         ) : (
@@ -201,7 +201,7 @@ export default function DashboardPage() {
             {assignments.map((a: any) => (
               <Link
                 key={a.id}
-                to={`/assignments/${a.id}`}
+                to={`/projects/${a.id}`}
                 className="rounded-xl border border-gray-200 bg-white p-5 shadow-2xs hover:shadow-md transition group"
               >
                 <div className="flex items-start justify-between">
@@ -236,28 +236,28 @@ export default function DashboardPage() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-gray-900">New Assignment Workspace</h3>
+              <h3 className="text-base font-bold text-gray-900">New Project</h3>
               <button onClick={() => setShowAssignmentModal(false)} className="text-gray-400 hover:text-gray-600">
                 <X className="h-5 w-5" />
               </button>
             </div>
             <form onSubmit={handleCreateAssignment} className="space-y-3">
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Assignment Name</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Project Name</label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Assignment 03 – Financial Statements"
+                  placeholder="e.g. Home Bakery – 2025 Books"
                   value={assignName}
                   onChange={(e) => setAssignName(e.target.value)}
                   className="w-full text-xs px-3 py-2 border border-gray-300 rounded-md outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Course / Subject</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Category (Optional)</label>
                 <input
                   type="text"
-                  placeholder="e.g. Financial Accounting 101"
+                  placeholder="e.g. Personal, Side Business, Practice"
                   value={assignCourse}
                   onChange={(e) => setAssignCourse(e.target.value)}
                   className="w-full text-xs px-3 py-2 border border-gray-300 rounded-md outline-none focus:ring-1 focus:ring-blue-500"
@@ -267,7 +267,7 @@ export default function DashboardPage() {
                 <label className="block text-xs font-medium text-gray-700 mb-1">Description</label>
                 <textarea
                   rows={2}
-                  placeholder="Optional notes or instructions"
+                  placeholder="Optional notes"
                   value={assignDesc}
                   onChange={(e) => setAssignDesc(e.target.value)}
                   className="w-full text-xs px-3 py-2 border border-gray-300 rounded-md outline-none focus:ring-1 focus:ring-blue-500"
@@ -285,7 +285,7 @@ export default function DashboardPage() {
                   type="submit"
                   className="px-4 py-1.5 text-xs text-white bg-blue-600 hover:bg-blue-700 font-medium rounded-md shadow-2xs"
                 >
-                  Create Assignment
+                  Create Project
                 </button>
               </div>
             </form>
@@ -316,7 +316,7 @@ export default function DashboardPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Assign to Assignment (Optional)</label>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Add to Project (Optional)</label>
                 <select
                   value={wbAssignmentId}
                   onChange={(e) => setWbAssignmentId(e.target.value ? Number(e.target.value) : "")}

@@ -1,4 +1,5 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, Link } from "react-router-dom";
+import { useAssignmentScope } from "@/lib/assignmentScope";
 import {
   LayoutDashboard,
   ListTree,
@@ -12,11 +13,12 @@ import {
   Save,
   CheckCircle2,
   Loader2,
+  FolderOpen,
+  X,
 } from "lucide-react";
 import { useAppStore } from "@/stores/appStore";
 
 const navItems = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/accounts", label: "Chart of Accounts", icon: ListTree },
   { to: "/journal-entries", label: "Journal Entries & Feeder", icon: PenLine },
   { to: "/ledger", label: "General Ledger", icon: BookOpen },
@@ -29,6 +31,12 @@ export default function AppLayout() {
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useAppStore((s) => s.toggleSidebar);
   const saveStatus = useAppStore((s) => s.saveStatus);
+  const { assignmentId, assignment, withScope } = useAssignmentScope();
+
+  const linkClass = ({ isActive }: { isActive: boolean }) =>
+    `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+      isActive ? "bg-blue-50 text-blue-700" : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+    }`;
 
   return (
     <div className="flex h-screen bg-gray-50 text-gray-900">
@@ -60,18 +68,42 @@ export default function AppLayout() {
 
         {/* Nav links */}
         <nav className="flex-1 overflow-y-auto py-3 space-y-1 px-2">
+          <NavLink to="/" end className={linkClass} title={sidebarCollapsed ? "Dashboard" : undefined}>
+            <LayoutDashboard className="h-5 w-5 shrink-0" />
+            {!sidebarCollapsed && <span>Dashboard</span>}
+          </NavLink>
+
+          {/* Current assignment context: all links below stay inside it */}
+          {assignmentId && (
+            <div
+              className={`mt-2 mb-1 rounded-lg border border-indigo-200 bg-indigo-50 ${sidebarCollapsed ? "p-1.5" : "px-3 py-2"}`}
+              title={sidebarCollapsed ? assignment?.name : undefined}
+            >
+              {sidebarCollapsed ? (
+                <Link to={`/projects/${assignmentId}`} className="flex justify-center text-indigo-600">
+                  <FolderOpen className="h-5 w-5" />
+                </Link>
+              ) : (
+                <div className="flex items-start justify-between gap-2">
+                  <Link to={`/projects/${assignmentId}`} className="min-w-0">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-500">Project</p>
+                    <p className="truncate text-xs font-semibold text-indigo-900 hover:underline">
+                      {assignment?.name ?? `#${assignmentId}`}
+                    </p>
+                  </Link>
+                  <Link to="/accounts" className="text-indigo-400 hover:text-indigo-700" title="Exit project (back to global workspace)">
+                    <X className="h-4 w-4" />
+                  </Link>
+                </div>
+              )}
+            </div>
+          )}
+
           {navItems.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
-              to={to}
-              end={to === "/"}
-              className={({ isActive }) =>
-                `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                  isActive
-                    ? "bg-blue-50 text-blue-700"
-                    : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
-                }`
-              }
+              to={to === "/reconciliation" ? to : withScope(to)}
+              className={linkClass}
               title={sidebarCollapsed ? label : undefined}
             >
               <Icon className="h-5 w-5 shrink-0" />

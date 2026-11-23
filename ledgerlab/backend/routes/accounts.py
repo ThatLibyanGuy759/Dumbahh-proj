@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify
-from models import db, Account, JournalLine, JournalEntry, BankTransaction
+from models import db, Account, JournalLine, JournalEntry, BankTransaction, scope_query
 
 bp = Blueprint("accounts", __name__, url_prefix="/api/accounts")
 
@@ -69,16 +69,7 @@ def _infer_type_and_normal_balance(code, name=""):
 @bp.route("", methods=["GET"])
 def list_accounts():
     assignment_id = request.args.get("assignment_id", type=int)
-    query = Account.query
-    if assignment_id:
-        # Get assignment specific accounts if they exist, otherwise fallback to global
-        scoped = Account.query.filter_by(assignment_id=assignment_id).order_by(Account.code).all()
-        if scoped:
-            return jsonify([a.to_dict() for a in scoped])
-        # If no scoped accounts, show global (where assignment_id is null)
-        query = query.filter_by(assignment_id=None)
-
-    accounts = query.order_by(Account.code).all()
+    accounts = scope_query(Account.query, Account, assignment_id).order_by(Account.code).all()
     return jsonify([a.to_dict() for a in accounts])
 
 
@@ -214,10 +205,7 @@ def bulk_delete_accounts():
     force = data.get("force", False)
 
     if delete_all:
-        if assignment_id:
-            accounts = Account.query.filter_by(assignment_id=assignment_id).all()
-        else:
-            accounts = Account.query.all()
+        accounts = scope_query(Account.query, Account, assignment_id).all()
         account_ids = [a.id for a in accounts]
 
     if not account_ids:
@@ -265,7 +253,7 @@ def bulk_delete_accounts():
 def seed_accounts():
     """Seed default chart of accounts if empty."""
     assignment_id = request.args.get("assignment_id", type=int)
-    count = Account.query.filter_by(assignment_id=assignment_id).count() if assignment_id else Account.query.count()
+    count = scope_query(Account.query, Account, assignment_id).count()
     if count > 0:
         return jsonify({"message": "Accounts already exist"}), 200
 
@@ -344,15 +332,7 @@ def get_all_ledgers():
     assignment_id = request.args.get("assignment_id", type=int)
     hide_unused = request.args.get("hide_unused", "false").lower() == "true"
 
-    query = Account.query
-    if assignment_id:
-        scoped = Account.query.filter_by(assignment_id=assignment_id).order_by(Account.code).all()
-        if scoped:
-            accounts = scoped
-        else:
-            accounts = query.filter_by(assignment_id=None).order_by(Account.code).all()
-    else:
-        accounts = query.order_by(Account.code).all()
+    accounts = scope_query(Account.query, Account, assignment_id).order_by(Account.code).all()
 
     results = []
     for account in accounts:
