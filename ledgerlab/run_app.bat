@@ -8,7 +8,11 @@ echo.
 set PATH=C:\Program Files\nodejs;%APPDATA%\npm;%PATH%
 
 echo [1/2] Starting Flask Backend (port 5000)...
-start "LedgerLab Backend" cmd /k "cd /d "%~dp0backend" && .venv\Scripts\python.exe app.py"
+if exist "%~dp0backend\.venv\Scripts\python.exe" (
+    start "LedgerLab Backend" cmd /k "cd /d "%~dp0backend" && .venv\Scripts\python.exe app.py"
+) else (
+    start "LedgerLab Backend" cmd /k "cd /d "%~dp0backend" && python app.py"
+)
 
 echo [2/2] Starting Vite Frontend (port 5173)...
 start "LedgerLab Frontend" cmd /k "cd /d "%~dp0frontend" && pnpm dev --open"
