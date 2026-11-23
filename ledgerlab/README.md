@@ -147,3 +147,13 @@ run_app.bat
 ```
 - Backend runs on: `http://localhost:5000`
 - Frontend runs on: `http://localhost:5173`
+
+## Deploying
+
+### Backend on Render
+
+Create a web service from this repository using the `render.yaml` blueprint. The service runs from the `backend` folder and stores SQLite at `backend/ledgerlab.db`; no external database is required. Set `FRONTEND_URL` to the deployed Vercel site origin (for example, `https://ledgerlab.vercel.app`, without a trailing slash). The blueprint generates `SECRET_KEY`; set `CORS_ORIGINS` to a comma-separated list if you also need to allow preview or custom frontend domains. Render uses `/api/health` as its health check. Render's local filesystem is ephemeral, so SQLite data can be lost when the service is redeployed or restarted.
+
+### Frontend on Vercel
+
+Import the repository as a Vercel project and set its Root Directory to `frontend`. Add `VITE_API_URL` as the backend's origin (for example, `https://ledgerlab-api.onrender.com`, without `/api` or a trailing slash) in the Vercel project environment variables, then redeploy. This variable is embedded in the frontend build, so it must be set for each Vercel environment you deploy. Without it, the app uses `/api` for local development through the Vite proxy.

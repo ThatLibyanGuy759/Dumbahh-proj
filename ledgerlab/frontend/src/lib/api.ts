@@ -1,4 +1,5 @@
-const API_BASE = "/api";
+const configuredApiUrl = import.meta.env.VITE_API_URL?.replace(/\/+$/, "");
+const API_BASE = configuredApiUrl ? `${configuredApiUrl}/api` : "/api";
 
 async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${url}`, {

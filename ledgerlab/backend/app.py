@@ -4,14 +4,14 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from flask import Flask
 from flask_cors import CORS
+from sqlalchemy import inspect, text
 from config import Config
 from models import db
 
 def _migrate(db):
-    """Add columns introduced after the database was first created (SQLite has no auto-migrate)."""
-    from sqlalchemy import text
+    """Add columns introduced after the database was first created."""
     with db.engine.begin() as conn:
-        cols = {row[1] for row in conn.execute(text("PRAGMA table_info(sheets)"))}
+        cols = {column["name"] for column in inspect(conn).get_columns("sheets")}
         if "merges" not in cols:
             conn.execute(text("ALTER TABLE sheets ADD COLUMN merges TEXT DEFAULT '[]'"))
 
@@ -19,7 +19,7 @@ def _migrate(db):
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
-    CORS(app, resources={r"/api/*": {"origins": "*"}})
+    CORS(app, resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}})
 
     db.init_app(app)
 
@@ -53,4 +53,8 @@ def create_app():
 
 if __name__ == "__main__":
     app = create_app()
-    app.run(debug=True, port=5000)
+    app.run(
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 5000)),
+        debug=os.environ.get("FLASK_DEBUG") == "1",
+    )
